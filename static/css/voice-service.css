@@ -380,30 +380,109 @@ header h1 {
     font-weight: bold;
 }
 
-/* Tooltips */
-.tooltip {
-    position: relative;
-    display: inline-block;
+/* Command History */
+.command-history {
+    margin-bottom: 2rem;
 }
 
-.tooltip .tooltiptext {
-    visibility: hidden;
-    width: 200px;
-    background-color: #555;
-    color: #fff;
-    text-align: center;
+.command-history h4 {
+    color: #333;
+    margin-bottom: 1rem;
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+.history-container {
+    max-height: 300px;
+    overflow-y: auto;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    background: #fafafa;
+}
+
+.history-item {
+    padding: 0.75rem;
+    border-bottom: 1px solid #e8e8e8;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.history-item:hover {
+    background-color: #f0f8ff;
+}
+
+.history-item:last-child {
+    border-bottom: none;
+}
+
+.history-command {
+    font-weight: 600;
+    color: #2c3e50;
+    margin-bottom: 0.25rem;
+    word-break: break-word;
+}
+
+.history-details {
+    display: flex;
+    gap: 1rem;
+    font-size: 0.85rem;
+    color: #666;
+    margin-bottom: 0.25rem;
+}
+
+.history-time {
+    color: #888;
+}
+
+.history-confidence {
+    color: #27ae60;
+}
+
+.history-status {
+    font-size: 1rem;
+}
+
+.history-generated {
+    font-size: 0.85rem;
+    color: #3498db;
+    font-family: 'Courier New', monospace;
+    background: #f8f9fa;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    margin-top: 0.25rem;
+    word-break: break-word;
+}
+
+/* Voice Feedback Button */
+.voice-feedback-btn {
+    background: linear-gradient(135deg, #9b59b6, #8e44ad);
+    color: white;
+    border: none;
+    padding: 0.75rem 1rem;
     border-radius: 6px;
-    padding: 5px;
-    position: absolute;
-    z-index: 1;
-    bottom: 125%;
-    left: 50%;
-    margin-left: -100px;
-    opacity: 0;
-    transition: opacity 0.3s;
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 500;
+    transition: all 0.2s ease;
+    margin-left: 0.5rem;
 }
 
-.tooltip:hover .tooltiptext {
-    visibility: visible;
-    opacity: 1;
+.voice-feedback-btn:hover {
+    background: linear-gradient(135deg, #8e44ad, #7d3c98);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(155, 89, 182, 0.3);
+}
+
+.voice-feedback-btn:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 4px rgba(155, 89, 182, 0.3);
+}
+
+.voice-feedback-btn.enabled {
+    background: linear-gradient(135deg, #27ae60, #2ecc71);
+}
+
+.voice-feedback-btn.enabled:hover {
+    background: linear-gradient(135deg, #229954, #27ae60);
+    box-shadow: 0 4px 8px rgba(39, 174, 96, 0.3);
 }

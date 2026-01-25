@@ -8,6 +8,11 @@ let ws = null;
 let commandCount = 0;
 let successCount = 0;
 let totalTime = 0;
+let commandHistory = []; // Store executed commands
+
+// Voice feedback settings
+let voiceFeedbackEnabled = true;
+let voiceFeedbackVolume = 0.7;
 
 // Continuous voice streaming with pause detection
 let mediaRecorder = null;
@@ -294,14 +299,121 @@ async function toggleRecording() {
     }
 }
 
-// Convert blob to base64
-function blobToBase64(blob) {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result.split(',')[1]);
-        reader.onerror = error => reject(error);
-        reader.readAsDataURL(blob);
-    });
+// Add command to history
+function addCommandToHistory(textCommand, result) {
+    const historyEntry = {
+        textCommand: textCommand,
+        generatedCommand: result.command,
+        confidence: result.confidence,
+        success: result.success,
+        timestamp: new Date(),
+        executionResult: result.execution_result
+    };
+    
+    // Add to beginning of history (most recent first)
+    commandHistory.unshift(historyEntry);
+    
+    // Limit history to last 50 commands
+    if (commandHistory.length > 50) {
+        commandHistory.pop();
+    }
+    
+    // Update history display
+    updateCommandHistoryDisplay();
+    
+    // Provide voice feedback
+    provideVoiceFeedback(result.success, result.command);
+}
+
+// Provide voice feedback for command results
+function provideVoiceFeedback(success, command) {
+    if (!voiceFeedbackEnabled || !('speechSynthesis' in window)) {
+        return;
+    }
+    
+    const utterance = new SpeechSynthesisUtterance();
+    utterance.volume = voiceFeedbackVolume;
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
+    
+    if (success) {
+        utterance.text = `Command executed successfully: ${command || 'command completed'}`;
+        utterance.lang = 'en-US'; // English for success messages
+    } else {
+        utterance.text = 'Command execution failed';
+        utterance.lang = 'en-US'; // English for error messages
+    }
+    
+    // Add some personality with voice selection
+    const voices = speechSynthesis.getVoices();
+    if (voices.length > 0) {
+        // Try to find a pleasant voice
+        const preferredVoice = voices.find(voice => 
+            voice.name.includes('Google') || 
+            voice.name.includes('Microsoft') || 
+            voice.lang.startsWith('en')
+        );
+        if (preferredVoice) {
+            utterance.voice = preferredVoice;
+        }
+    }
+    
+    speechSynthesis.speak(utterance);
+}
+
+// Toggle voice feedback
+function toggleVoiceFeedback() {
+    voiceFeedbackEnabled = !voiceFeedbackEnabled;
+    const status = voiceFeedbackEnabled ? 'enabled' : 'disabled';
+    addLog(`🔊 Voice feedback ${status}`);
+    
+    // Provide immediate feedback
+    if (voiceFeedbackEnabled) {
+        const testUtterance = new SpeechSynthesisUtterance('Voice feedback enabled');
+        testUtterance.volume = voiceFeedbackVolume;
+        speechSynthesis.speak(testUtterance);
+    }
+}
+
+// Update command history display
+function updateCommandHistoryDisplay() {
+    const historyContainer = document.getElementById('commandHistory');
+    if (!historyContainer) return;
+    
+    if (commandHistory.length === 0) {
+        historyContainer.innerHTML = '<div class="history-item">No commands executed yet</div>';
+        return;
+    }
+    
+    historyContainer.innerHTML = commandHistory.map((entry, index) => {
+        const timeString = entry.timestamp.toLocaleTimeString();
+        const confidencePercent = entry.confidence ? (entry.confidence * 100).toFixed(1) : 'N/A';
+        const statusIcon = entry.success ? '✅' : '❌';
+        
+        return `
+            <div class="history-item" onclick="reuseCommand(${index})">
+                <div class="history-command">${entry.textCommand}</div>
+                <div class="history-details">
+                    <span class="history-time">${timeString}</span>
+                    <span class="history-confidence">📊 ${confidencePercent}%</span>
+                    <span class="history-status">${statusIcon}</span>
+                </div>
+                ${entry.generatedCommand ? `<div class="history-generated">🔧 ${entry.generatedCommand}</div>` : ''}
+            </div>
+        `;
+    }).join('');
+}
+
+// Reuse command from history
+function reuseCommand(index) {
+    if (index >= 0 && index < commandHistory.length) {
+        const entry = commandHistory[index];
+        const textInput = document.getElementById('textInput');
+        if (textInput) {
+            textInput.value = entry.textCommand;
+            addLog(`📝 Reused command from history: "${entry.textCommand}"`);
+        }
+    }
 }
 
 // Send voice command
@@ -344,6 +456,9 @@ async function sendVoiceCommand(audioData = null) {
         
         showResult(result.success, result);
         updateMetrics(result.success, responseTime);
+        
+        // Add command to history
+        addCommandToHistory(textCommand, result);
         
         if (result.success) {
             addLog(`✅ Command completed in ${responseTime}ms`);

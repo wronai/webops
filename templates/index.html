@@ -20,6 +20,7 @@
                 <input type="text" id="textInput" class="text-input" placeholder="Enter command or start continuous voice...">
                 <button id="recordBtn" class="record-btn">🎤 Start Voice</button>
                 <button id="submitBtn" class="submit-btn">▶ Execute</button>
+                <button id="voiceFeedbackBtn" class="voice-feedback-btn" onclick="toggleVoiceFeedback()">🔊 Voice Feedback</button>
             </div>
             
             <div class="metrics">
@@ -51,6 +52,13 @@
                 <div>🛡️ All commands executed in isolated environment</div>
                 <div>🐛 DEBUG MODE - Enhanced logging enabled</div>
                 <div>📝 Check browser console for JavaScript errors</div>
+            </div>
+        </div>
+        
+        <div class="command-history">
+            <h4>📚 Command History (click to reuse):</h4>
+            <div id="commandHistory" class="history-container">
+                <div class="history-item">No commands executed yet</div>
             </div>
         </div>
         
