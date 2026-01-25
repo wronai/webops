@@ -83,32 +83,37 @@ class ShellExecutor:
         try:
             # Create temporary file for output
             with tempfile.NamedTemporaryFile(mode='w+', delete=True, suffix='.log') as temp_file:
-                # Execute command with timeout
+                # Execute command without timeout parameter (not supported)
                 process = await asyncio.create_subprocess_shell(
                     command,
                     stdout=temp_file,
-                    stderr=temp_file,
-                    timeout=self.max_execution_time
+                    stderr=temp_file
                 )
-                stdout, stderr = await process.communicate()
+                # Use asyncio.wait_for for timeout
+                try:
+                    stdout, stderr = await asyncio.wait_for(
+                        process.communicate(),
+                        timeout=self.max_execution_time
+                    )
+                except asyncio.TimeoutError:
+                    process.kill()
+                    return {
+                        "success": False,
+                        "exit_code": 124,
+                        "stdout": "",
+                        "stderr": "Command execution timed out",
+                        "logs": ["Command execution timed out"],
+                        "execution_time": self.max_execution_time
+                    }
                 
                 return {
                     "success": process.returncode == 0,
                     "exit_code": process.returncode,
-                    "stdout": stdout.strip() if stdout else "",
-                    "stderr": stderr.strip() if stderr else "",
-                    "logs": [line.strip() for line in temp_file.read_text().split('\n') if line.strip()],
+                    "stdout": stdout.decode().strip() if stdout else "",
+                    "stderr": stderr.decode().strip() if stderr else "",
+                    "logs": [line.strip() for line in temp_file.read().split('\n') if line.strip()],
                     "execution_time": 0  # Would need to track this
                 }
-        except asyncio.TimeoutError:
-            return {
-                "success": False,
-                "exit_code": 124,
-                "stdout": "",
-                "stderr": "Command execution timed out",
-                "logs": ["Command execution timed out"],
-                "execution_time": self.max_execution_time
-            }
         except Exception as e:
             return {
                 "success": False,
@@ -464,6 +469,7 @@ async def process_voice_command(request: VoiceCommandRequest):
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """WebSocket endpoint for real-time log streaming."""
+    await websocket.accept()
     await voice_manager.connect(websocket)
     try:
         while True:
