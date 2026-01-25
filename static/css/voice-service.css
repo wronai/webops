@@ -482,7 +482,44 @@ header h1 {
     background: linear-gradient(135deg, #27ae60, #2ecc71);
 }
 
-.voice-feedback-btn.enabled:hover {
-    background: linear-gradient(135deg, #229954, #27ae60);
-    box-shadow: 0 4px 8px rgba(39, 174, 96, 0.3);
+/* Command Suggestions */
+.suggestions-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: white;
+    border: 1px solid #e0e0e0;
+    border-top: none;
+    border-radius: 0 0 6px 6px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    max-height: 200px;
+    overflow-y: auto;
+    z-index: 1000;
+}
+
+.suggestion-item {
+    padding: 0.75rem 1rem;
+    cursor: pointer;
+    border-bottom: 1px solid #f0f0f0;
+    transition: background-color 0.2s;
+}
+
+.suggestion-item:hover,
+.suggestion-item.highlighted {
+    background-color: #f8f9ff;
+    color: #2c3e50;
+}
+
+.suggestion-item:last-child {
+    border-bottom: none;
+}
+
+.suggestion-item:hover {
+    background-color: #f0f8ff;
+}
+
+/* Ensure text input has relative positioning for dropdown */
+.text-input {
+    position: relative;
 }

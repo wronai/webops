@@ -14,6 +14,22 @@ let commandHistory = []; // Store executed commands
 let voiceFeedbackEnabled = true;
 let voiceFeedbackVolume = 0.7;
 
+// Command suggestions settings
+let commandSuggestionsEnabled = true;
+let currentSuggestions = [];
+let selectedSuggestionIndex = -1;
+
+// Common command patterns for autocomplete
+const commonCommandPatterns = [
+    'list files', 'show directory contents', 'show current directory',
+    'show running processes', 'show system processes', 'check disk space',
+    'list containers', 'find files larger than', 'show network connections',
+    'display system info', 'show memory usage', 'check cpu usage',
+    'list users', 'show logged in users', 'display environment variables',
+    'show mounted filesystems', 'check system load', 'show kernel version',
+    'list installed packages', 'show service status', 'check port usage'
+];
+
 // Continuous voice streaming with pause detection
 let mediaRecorder = null;
 let audioChunks = [];
@@ -375,6 +391,135 @@ function toggleVoiceFeedback() {
     }
 }
 
+// Generate command suggestions based on input
+function generateSuggestions(input) {
+    if (!commandSuggestionsEnabled || input.length < 2) {
+        return [];
+    }
+    
+    const inputLower = input.toLowerCase();
+    const suggestions = [];
+    
+    // Add suggestions from command history (recent commands first)
+    commandHistory.forEach(entry => {
+        if (entry.textCommand.toLowerCase().includes(inputLower) && 
+            !suggestions.includes(entry.textCommand)) {
+            suggestions.push(entry.textCommand);
+        }
+    });
+    
+    // Add suggestions from common patterns
+    commonCommandPatterns.forEach(pattern => {
+        if (pattern.toLowerCase().includes(inputLower) && 
+            !suggestions.includes(pattern)) {
+            suggestions.push(pattern);
+        }
+    });
+    
+    return suggestions.slice(0, 5); // Limit to 5 suggestions
+}
+
+// Display command suggestions
+function displaySuggestions(suggestions) {
+    const existingDropdown = document.querySelector('.suggestions-dropdown');
+    if (existingDropdown) {
+        existingDropdown.remove();
+    }
+    
+    if (suggestions.length === 0) {
+        selectedSuggestionIndex = -1;
+        return;
+    }
+    
+    const textInput = document.getElementById('textInput');
+    const dropdown = document.createElement('div');
+    dropdown.className = 'suggestions-dropdown';
+    
+    suggestions.forEach((suggestion, index) => {
+        const item = document.createElement('div');
+        item.className = 'suggestion-item';
+        item.textContent = suggestion;
+        item.onclick = () => selectSuggestion(suggestion);
+        item.onmouseenter = () => highlightSuggestion(index);
+        dropdown.appendChild(item);
+    });
+    
+    textInput.parentNode.appendChild(dropdown);
+    selectedSuggestionIndex = -1;
+}
+
+// Hide suggestions dropdown
+function hideSuggestions() {
+    const dropdown = document.querySelector('.suggestions-dropdown');
+    if (dropdown) {
+        dropdown.remove();
+    }
+    selectedSuggestionIndex = -1;
+}
+
+// Select a suggestion
+function selectSuggestion(suggestion) {
+    const textInput = document.getElementById('textInput');
+    textInput.value = suggestion;
+    hideSuggestions();
+    addLog(`💡 Selected suggestion: "${suggestion}"`);
+}
+
+// Highlight suggestion for keyboard navigation
+function highlightSuggestion(index) {
+    const items = document.querySelectorAll('.suggestion-item');
+    items.forEach((item, i) => {
+        if (i === index) {
+            item.classList.add('highlighted');
+            selectedSuggestionIndex = index;
+        } else {
+            item.classList.remove('highlighted');
+        }
+    });
+}
+
+// Handle keyboard navigation for suggestions
+function handleSuggestionKeys(event) {
+    const suggestions = document.querySelectorAll('.suggestion-item');
+    if (suggestions.length === 0) return;
+    
+    switch (event.key) {
+        case 'ArrowDown':
+            event.preventDefault();
+            selectedSuggestionIndex = Math.min(selectedSuggestionIndex + 1, suggestions.length - 1);
+            highlightSuggestion(selectedSuggestionIndex);
+            break;
+        case 'ArrowUp':
+            event.preventDefault();
+            selectedSuggestionIndex = Math.max(selectedSuggestionIndex - 1, -1);
+            highlightSuggestion(selectedSuggestionIndex);
+            break;
+        case 'Enter':
+            if (selectedSuggestionIndex >= 0) {
+                event.preventDefault();
+                const selectedSuggestion = suggestions[selectedSuggestionIndex].textContent;
+                selectSuggestion(selectedSuggestion);
+            }
+            break;
+        case 'Escape':
+            hideSuggestions();
+            break;
+    }
+}
+
+// Handle input changes for suggestions
+function handleInputChange() {
+    const textInput = document.getElementById('textInput');
+    const input = textInput.value.trim();
+    
+    if (input.length >= 2 && commandSuggestionsEnabled) {
+        currentSuggestions = generateSuggestions(input);
+        displaySuggestions(currentSuggestions);
+    } else {
+        hideSuggestions();
+    }
+}
+
 // Update command history display
 function updateCommandHistoryDisplay() {
     const historyContainer = document.getElementById('commandHistory');
@@ -506,6 +651,15 @@ document.addEventListener('DOMContentLoaded', function() {
                 submitBtn.click();
             }
         });
+        
+        // Add suggestion event listeners
+        textInput.addEventListener('input', handleInputChange);
+        textInput.addEventListener('keydown', handleSuggestionKeys);
+        textInput.addEventListener('blur', () => {
+            // Delay hiding suggestions to allow clicks on them
+            setTimeout(hideSuggestions, 150);
+        });
+        textInput.addEventListener('focus', handleInputChange);
     }
     
     addLog('🚀 WebOps Voice Service initialized');
