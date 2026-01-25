@@ -31,43 +31,6 @@ services:
       retries: 3
       start_period: 40s
 
-  # Optional: Add monitoring stack
-  prometheus:
-    image: prom/prometheus:latest
-    container_name: webops-prometheus
-    ports:
-      - "9090:9090"
-    volumes:
-      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
-      - prometheus-data:/prometheus
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-      - '--web.console.libraries=/etc/prometheus/console_libraries'
-      - '--web.console.templates=/etc/prometheus/consoles'
-    networks:
-      - webops-network
-    restart: unless-stopped
-    profiles:
-      - monitoring
-
-  grafana:
-    image: grafana/grafana:latest
-    container_name: webops-grafana
-    ports:
-      - "3000:3000"
-    environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin123
-    volumes:
-      - grafana-data:/var/lib/grafana
-      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
-      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
-    networks:
-      - webops-network
-    restart: unless-stopped
-    profiles:
-      - monitoring
-
   # Optional: Add reverse proxy for production
   nginx:
     image: nginx:alpine
@@ -95,5 +58,3 @@ volumes:
   logs:
   workspace:
   uploads:
-  prometheus-data:
-  grafana-data:

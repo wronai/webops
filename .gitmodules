@@ -1,0 +1,3 @@
+[submodule "nlp2cmd-repo"]
+	path = nlp2cmd-repo
+	url = https://github.com/wronai/nlp2cmd.git

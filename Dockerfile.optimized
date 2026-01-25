@@ -1,0 +1,66 @@
+# WebOps Voice Service Dockerfile
+# Uses nlp2cmd package from PyPI with optimized caching
+
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    wget \
+    git \
+    vim \
+    nano \
+    htop \
+    procps \
+    net-tools \
+    dnsutils \
+    lsof \
+    tree \
+    unzip \
+    zip \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN useradd -m -u 1000 webops && \
+    mkdir -p /app/logs /app/uploads /app/workspace && \
+    chown -R webops:webops /app
+
+# Copy requirements files (separate layer for better caching)
+COPY requirements.txt .
+COPY requirements-voice.txt .
+
+# Install base Python dependencies first (cached layer)
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Install nlp2cmd package from PyPI (cached if unchanged)
+RUN pip install nlp2cmd
+
+# Copy application files (last layer for frequent changes)
+COPY voice_service.py .
+COPY docker_app.py .
+COPY tests/ ./tests/
+
+# Set environment variables
+ENV PYTHONPATH=/app
+ENV NLP2CMD_HOST=0.0.0.0
+ENV NLP2CMD_PORT=8000
+ENV NLP2CMD_DEBUG=false
+ENV NLP2CMD_LOG_LEVEL=info
+ENV NLP2CMD_AUTO_EXECUTE=true
+ENV WORKSPACE_DIR=/app/workspace
+
+# Expose port
+EXPOSE 8000
+
+# Switch to non-root user
+USER webops
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Start script
+CMD ["python", "voice_service.py"]
