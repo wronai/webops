@@ -156,67 +156,143 @@ class VoiceServiceManager:
         self.active_connections: List[WebSocket] = []
         self.executor = ShellExecutor()
         
-        # Always initialize pipeline first to ensure it exists
-        self.pipeline = self._create_mock_pipeline()
+        # Always initialize NLP2CMD pipeline directly
+        self.pipeline = self._create_nlp2cmd_pipeline()
         self.nlp2cmd_service = None
+        print("✅ Using direct NLP2CMD CLI pipeline")
         
-        # Try to initialize NLP2CMD service if available
-        if NLP2CMD_AVAILABLE and NLP2CMDService is not None:
-            try:
-                # Set environment variables for ServiceConfig
-                os.environ["NLP2CMD_HOST"] = "0.0.0.0"
-                os.environ["NLP2CMD_PORT"] = "8000"
-                os.environ["NLP2CMD_DEBUG"] = "false"
-                os.environ["NLP2CMD_LOG_LEVEL"] = "info"
-                os.environ["NLP2CMD_AUTO_EXECUTE"] = "true"
-                
-                # Create service configuration (reads from env)
-                config = ServiceConfig()
-                self.nlp2cmd_service = NLP2CMDService(config)
-                print("✅ NLP2CMD Service initialized successfully")
-                
-                # Try to use the real pipeline if available
-                if hasattr(self.nlp2cmd_service, 'pipeline') and self.nlp2cmd_service.pipeline is not None:
-                    self.pipeline = self.nlp2cmd_service.pipeline
-                    print("✅ Using NLP2CMD pipeline")
-                else:
-                    print("⚠️ NLP2CMD pipeline not available, using mock pipeline")
-                
-            except Exception as e:
-                print(f"⚠️ Failed to initialize NLP2CMD service: {e}")
-                self.nlp2cmd_service = None
-                self.pipeline = self._create_mock_pipeline()
-        else:
-            print("⚠️ NLP2CMD service not available, using mock pipeline")
-        
-    def _create_mock_pipeline(self):
-        """Create mock pipeline for testing without NLP2CMD."""
-        class MockPipeline:
+    def _create_nlp2cmd_pipeline(self):
+        """Create direct NLP2CMD pipeline using subprocess."""
+        class NLP2CMDPipeline:
             def process(self, query):
-                class MockResult:
-                    def __init__(self, query):
-                        self.success = True
-                        self.command = self._generate_command(query)
-                        self.confidence = 0.85
-                        self.errors = []
-                        self.explanation = f"Generated command: {self.command}"
-                    
-                    def _generate_command(self, query):
-                        query_lower = query.lower()
-                        if "list files" in query_lower:
-                            return "ls -la"
-                        elif "show processes" in query_lower:
-                            return "ps aux"
-                        elif "find files" in query_lower:
-                            return "find . -type f"
-                        elif "disk space" in query_lower:
-                            return "df -h"
-                        else:
-                            return f"echo 'Generated command for: {query}'"
+                import subprocess
+                import os
+                import json
+                import sys
                 
-                return MockResult(query)
+                print(f"DEBUG: Processing query: {query}", file=sys.stderr, flush=True)
+                
+                try:
+                    # Set environment for NLP2CMD
+                    env = os.environ.copy()
+                    env['NLP2CMD_KEYWORD_DETECTOR_CONFIG'] = '/app/nlp2cmd-repo/data/keyword_intent_detector_config.json'
+                    env['NLP2CMD_PATTERNS_FILE'] = '/app/nlp2cmd-repo/data/patterns.json'
+                    
+                    # Run nlp2cmd CLI
+                    result = subprocess.run([
+                        'nlp2cmd', query
+                    ], capture_output=True, text=True, env=env, timeout=30)
+                    
+                    print(f"DEBUG: NLP2CMD return code: {result.returncode}", flush=True)
+                    
+                    if result.returncode == 0:
+                        # Parse the output to extract command
+                        output_lines = result.stdout.strip().split('\n')
+                        command = ""
+                        yaml_data = {}
+                        
+                        # Debug: print the raw output
+                        print(f"DEBUG: NLP2CMD output: {result.stdout}", flush=True)
+                        
+                        # Extract command (line after ```bash)
+                        bash_block_started = False
+                        for line in output_lines:
+                            line = line.strip()
+                            if line == '```bash':
+                                bash_block_started = True
+                                continue
+                            elif line == '```' and bash_block_started:
+                                break
+                            elif bash_block_started and line:
+                                command = line
+                                break
+                        
+                        # If no command found in bash block, try to extract from yaml
+                        if not command:
+                            for line in output_lines:
+                                line = line.strip()
+                                if line.startswith('generated_command:'):
+                                    command = line.replace('generated_command:', '').strip().strip('"')
+                                    break
+                        
+                        # Parse YAML data
+                        yaml_start = False
+                        yaml_lines = []
+                        for line in output_lines:
+                            line = line.strip()
+                            if line == '```yaml':
+                                yaml_start = True
+                                continue
+                            elif line == '```' and yaml_start:
+                                break
+                            elif yaml_start:
+                                yaml_lines.append(line)
+                        
+                        if yaml_lines:
+                            try:
+                                yaml_text = '\n'.join(yaml_lines)
+                                # Simple YAML parsing for key values
+                                for line in yaml_text.split('\n'):
+                                    if ':' in line and not line.startswith(' '):
+                                        key, value = line.split(':', 1)
+                                        yaml_data[key.strip()] = value.strip()
+                            except:
+                                pass
+                        
+                        # If no command found in backticks, try to extract from yaml
+                        if not command and 'generated_command' in yaml_data:
+                            command = yaml_data['generated_command'].strip().strip('"')
+                        
+                        # Debug: print parsed values
+                        print(f"DEBUG: Parsed command: '{command}'", flush=True)
+                        print(f"DEBUG: Parsed yaml: {yaml_data}", flush=True)
+                        
+                        class NLP2CMDResult:
+                            def __init__(self, command, yaml_data):
+                                self.success = True
+                                self.command = command
+                                self.confidence = float(yaml_data.get('confidence', '0.9'))
+                                self.errors = []
+                                self.explanation = f"NLP2CMD generated: {command}"
+                                self.status = yaml_data.get('status', 'success')
+                                self.warnings = yaml_data.get('warnings', [])
+                                self.suggestions = yaml_data.get('suggestions', [])
+                        
+                        return NLP2CMDResult(command, yaml_data)
+                    else:
+                        # Error case
+                        class NLP2CMDResult:
+                            def __init__(self, error):
+                                self.success = False
+                                self.command = ""
+                                self.confidence = 0.0
+                                self.errors = [error]
+                                self.explanation = f"NLP2CMD error: {error}"
+                        
+                        return NLP2CMDResult(result.stderr)
+                        
+                except subprocess.TimeoutExpired:
+                    class NLP2CMDResult:
+                        def __init__(self):
+                            self.success = False
+                            self.command = ""
+                            self.confidence = 0.0
+                            self.errors = ["NLP2CMD timeout"]
+                            self.explanation = "NLP2CMD processing timed out"
+                    
+                    return NLP2CMDResult()
+                except Exception as e:
+                    class NLP2CMDResult:
+                        def __init__(self, error):
+                            self.success = False
+                            self.command = ""
+                            self.confidence = 0.0
+                            self.errors = [str(error)]
+                            self.explanation = f"NLP2CMD error: {str(error)}"
+                    
+                    return NLP2CMDResult(str(e))
         
-        return MockPipeline()
+        return NLP2CMDPipeline()
         
     async def connect(self, websocket: WebSocket):
         """Accept WebSocket connection."""
@@ -252,37 +328,95 @@ class VoiceServiceManager:
                     error="No command provided"
                 )
             
-            # Process command with NLP2CMD service or mock pipeline
-            if hasattr(self, 'nlp2cmd_service') and self.nlp2cmd_service is not None:
-                result = await self._process_with_nlp2cmd_service(command_text, request.language, request.execute)
+            # Process command with NLP2CMD pipeline
+            import sys
+            print(f"DEBUG: About to process command: {command_text}", file=sys.stderr, flush=True)
+            
+            # Force direct subprocess call to bypass any caching
+            import subprocess
+            import os
+            env = os.environ.copy()
+            env['NLP2CMD_KEYWORD_DETECTOR_CONFIG'] = '/app/nlp2cmd-repo/data/keyword_intent_detector_config.json'
+            env['NLP2CMD_PATTERNS_FILE'] = '/app/nlp2cmd-repo/data/patterns.json'
+            
+            result = subprocess.run(['nlp2cmd', command_text], capture_output=True, text=True, env=env, timeout=30)
+            print(f"DEBUG: Raw NLP2CMD result: {result.returncode}", file=sys.stderr, flush=True)
+            print(f"DEBUG: Raw NLP2CMD stdout: {result.stdout}", file=sys.stderr, flush=True)
+            
+            # Parse output directly here
+            if result.returncode == 0:
+                output_lines = result.stdout.strip().split('\n')
+                command = ""
+                
+                # Extract command (line after ```bash)
+                bash_block_started = False
+                for line in output_lines:
+                    line = line.strip()
+                    if line == '```bash':
+                        bash_block_started = True
+                        continue
+                    elif line == '```' and bash_block_started:
+                        break
+                    elif bash_block_started and line:
+                        command = line
+                        break
+                
+                # Fallback to YAML
+                if not command:
+                    for line in output_lines:
+                        if 'generated_command:' in line:
+                            command = line.split(':', 1)[1].strip().strip('"')
+                            break
+                
+                print(f"DEBUG: Extracted command: '{command}'", file=sys.stderr, flush=True)
+                
+                # Create mock result
+                class MockResult:
+                    def __init__(self, cmd):
+                        self.success = True
+                        self.command = cmd
+                        self.confidence = 1.0
+                        self.errors = []
+                        self.explanation = f"NLP2CMD generated: {cmd}"
+                
+                pipeline_result = MockResult(command)
             else:
-                # Use mock pipeline
-                pipeline_result = self.pipeline.process(command_text)
+                class MockResult:
+                    def __init__(self):
+                        self.success = False
+                        self.command = ""
+                        self.confidence = 0.0
+                        self.errors = ["NLP2CMD failed"]
+                        self.explanation = "NLP2CMD processing failed"
                 
-                if not pipeline_result.success:
-                    return VoiceCommandResponse(
-                        success=False,
-                        error="Failed to process command",
-                        explanation=pipeline_result.errors[0] if pipeline_result.errors else "Unknown error"
-                    )
+                pipeline_result = MockResult()
+            
+            print(f"DEBUG: Final pipeline result: {pipeline_result.command}", file=sys.stderr, flush=True)
+            
+            if not pipeline_result.success:
+                return VoiceCommandResponse(
+                    success=False,
+                    error="Failed to process command",
+                    explanation=pipeline_result.errors[0] if pipeline_result.errors else "Unknown error"
+                )
+            
+            result = {
+                "success": True,
+                "command": pipeline_result.command,
+                "explanation": f"Generated by RuleBasedPipeline with confidence {pipeline_result.confidence:.2f}",
+                "confidence": pipeline_result.confidence,
+            }
+            
+            # Execute command if requested
+            if request.execute and pipeline_result.command:
+                await self.broadcast_log(f"Executing: {pipeline_result.command}")
+                execution_result = await self.executor.execute_command(pipeline_result.command)
+                result["execution_result"] = execution_result
+                result["logs"] = execution_result["logs"]
                 
-                result = {
-                    "success": True,
-                    "command": pipeline_result.command,
-                    "explanation": f"Generated by RuleBasedPipeline with confidence {pipeline_result.confidence:.2f}",
-                    "confidence": pipeline_result.confidence,
-                }
-                
-                # Execute command if requested
-                if request.execute and pipeline_result.command:
-                    await self.broadcast_log(f"Executing: {pipeline_result.command}")
-                    execution_result = await self.executor.execute_command(pipeline_result.command)
-                    result["execution_result"] = execution_result
-                    result["logs"] = execution_result["logs"]
-                    
-                    # Broadcast logs line by line
-                    for log_line in execution_result.get("logs", []):
-                        await self.broadcast_log(log_line)
+                # Broadcast logs line by line
+                for log_line in execution_result.get("logs", []):
+                    await self.broadcast_log(log_line)
             
             return VoiceCommandResponse(**result)
             
