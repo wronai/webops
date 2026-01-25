@@ -9,6 +9,22 @@ let commandCount = 0;
 let successCount = 0;
 let totalTime = 0;
 
+// Continuous voice streaming with pause detection
+let mediaRecorder = null;
+let audioChunks = [];
+let isRecording = false;
+let silenceTimer = null;
+let audioContext = null;
+let analyser = null;
+let microphone = null;
+let javascriptNode = null;
+let isStreamActive = false;
+let speechStartTime = null;
+let isSpeaking = false;
+const SILENCE_THRESHOLD = 0.01; // Audio level threshold for silence
+const SILENCE_DURATION = 1500; // 1.5 seconds of silence to trigger command
+const MIN_SPEECH_DURATION = 500; // Minimum speech duration before pause detection
+
 // DEBUG: Log script initialization
 console.log('🐛 DEBUG: Script initializing...');
 addLog('🐛 DEBUG: JavaScript script starting...');
@@ -25,6 +41,9 @@ if (typeof audioChunks !== 'undefined') {
     console.error('🐛 ERROR: audioChunks already declared!');
     addLog('🐛 ERROR: audioChunks already declared!');
 }
+
+console.log('🐛 DEBUG: Audio variables declared successfully');
+addLog('🐛 DEBUG: Audio streaming variables initialized');
 
 // Initialize WebSocket
 function initWebSocket() {
@@ -128,28 +147,6 @@ function setCommand(command) {
         addLog(`📝 Command set: "${command}"`);
     }
 }
-
-// Continuous voice streaming with pause detection
-console.log('🐛 DEBUG: Declaring audio variables...');
-addLog('🐛 DEBUG: Setting up audio streaming variables...');
-
-let mediaRecorder = null;
-let audioChunks = [];
-let isRecording = false;
-let silenceTimer = null;
-let audioContext = null;
-let analyser = null;
-let microphone = null;
-let javascriptNode = null;
-let isStreamActive = false;
-let speechStartTime = null;
-let isSpeaking = false;
-const SILENCE_THRESHOLD = 0.01; // Audio level threshold for silence
-const SILENCE_DURATION = 1500; // 1.5 seconds of silence to trigger command
-const MIN_SPEECH_DURATION = 500; // Minimum speech duration before pause detection
-
-console.log('🐛 DEBUG: Audio variables declared successfully');
-addLog('🐛 DEBUG: Audio streaming variables initialized');
 
 // Start continuous voice streaming
 async function startContinuousStreaming() {
