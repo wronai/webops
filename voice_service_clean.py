@@ -227,14 +227,13 @@ class VoiceServiceManager:
     async def connect(self, websocket: WebSocket):
         """Connect a new WebSocket client."""
         self.active_connections.append(websocket)
-        try:
-            while True:
-                # Keep connection alive
-                await websocket.receive_text()
-        except WebSocketDisconnect:
+        print(f"WebSocket client connected. Total connections: {len(self.active_connections)}")
+    
+    def disconnect(self, websocket: WebSocket):
+        """Disconnect a WebSocket client."""
+        if websocket in self.active_connections:
             self.active_connections.remove(websocket)
-        except Exception as e:
-            print(f"WebSocket error: {e}")
+            print(f"WebSocket client disconnected. Total connections: {len(self.active_connections)}")
     
     async def broadcast_log(self, message: str):
         """Broadcast log message to all connected clients."""
@@ -471,9 +470,10 @@ async def websocket_endpoint(websocket: WebSocket):
             # Keep connection alive
             await websocket.receive_text()
     except WebSocketDisconnect:
-        pass
+        voice_manager.disconnect(websocket)
     except Exception as e:
         print(f"WebSocket error: {e}")
+        voice_manager.disconnect(websocket)
 
 
 if __name__ == "__main__":
