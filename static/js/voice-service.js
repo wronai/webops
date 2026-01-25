@@ -32,16 +32,6 @@ addLog('🐛 DEBUG: JavaScript script starting...');
 // DEBUG: Log variable declarations
 console.log('🐛 DEBUG: Declaring global variables...');
 
-// DEBUG: Check for existing variables
-if (typeof mediaRecorder !== 'undefined') {
-    console.error('🐛 ERROR: mediaRecorder already declared!');
-    addLog('🐛 ERROR: mediaRecorder already declared!');
-}
-if (typeof audioChunks !== 'undefined') {
-    console.error('🐛 ERROR: audioChunks already declared!');
-    addLog('🐛 ERROR: audioChunks already declared!');
-}
-
 console.log('🐛 DEBUG: Audio variables declared successfully');
 addLog('🐛 DEBUG: Audio streaming variables initialized');
 
