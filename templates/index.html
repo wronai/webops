@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎤 WebOps Voice Service - NLP2CMD</title>
+    <meta name="description" content="Voice-controlled command execution for operations teams powered by NLP2CMD">
+    <link rel="stylesheet" href="/static/css/voice-service.css">
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎤 NLP2CMD WebOps Voice Service</h1>
+            <p class="subtitle">Voice-controlled command execution for operations teams</p>
+        </header>
+        
+        <div class="main-panel">
+            <div class="controls">
+                <input type="text" id="textInput" class="text-input" placeholder="Enter command or start continuous voice...">
+                <button id="recordBtn" class="record-btn">🎤 Start Voice</button>
+                <button id="submitBtn" class="submit-btn">▶ Execute</button>
+            </div>
+            
+            <div class="metrics">
+                <div class="metric-card">
+                    <div class="metric-value" id="commandCount">0</div>
+                    <div class="metric-label">Commands Executed</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value" id="successRate">100%</div>
+                    <div class="metric-label">Success Rate</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value" id="avgTime">0ms</div>
+                    <div class="metric-label">Avg Response Time</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value"><span class="status-indicator status-online"></span>Online</div>
+                    <div class="metric-label">Service Status</div>
+                </div>
+            </div>
+            
+            <div id="result" class="result-panel"></div>
+            
+            <div class="logs-panel" id="logs">
+                <div>🔧 WebOps Voice Service - Ready</div>
+                <div>🎤 Continuous voice streaming enabled</div>
+                <div>⏸️ Pause detection for automatic command execution</div>
+                <div>📊 Real-time execution logs displayed below</div>
+                <div>🛡️ All commands executed in isolated environment</div>
+                <div>🐛 DEBUG MODE - Enhanced logging enabled</div>
+                <div>📝 Check browser console for JavaScript errors</div>
+            </div>
+        </div>
+        
+        <div class="examples">
+            <h4>🎯 Quick Examples (click to use):</h4>
+            <div class="example-item" onclick="setCommand('list files')">list files</div>
+            <div class="example-item" onclick="setCommand('show current directory contents')">show current directory contents</div>
+            <div class="example-item" onclick="setCommand('show running processes')">show running processes</div>
+            <div class="example-item" onclick="setCommand('show system processes')">show system processes</div>
+            <div class="example-item" onclick="setCommand('check disk space')">check disk space</div>
+            <div class="example-item" onclick="setCommand('list containers')">list containers</div>
+            <div class="example-item" onclick="setCommand('find files larger than 100MB')">find files larger than 100MB</div>
+            <div class="example-item" onclick="setCommand('show network connections')">show network connections</div>
+        </div>
+    </div>
+
+    <script src="/static/js/voice-service.js"></script>
+</body>
+</html>

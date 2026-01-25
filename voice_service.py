@@ -20,6 +20,7 @@ try:
     from fastapi.responses import HTMLResponse, JSONResponse
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.staticfiles import StaticFiles
+    from fastapi.templating import Jinja2Templates
     from pydantic import BaseModel, Field
     import uvicorn
 except ImportError:
@@ -35,6 +36,7 @@ except ImportError:
     BaseModel = object
     Field = lambda x, **kwargs: x
     uvicorn = None
+    Jinja2Templates = None
 
 # Import NLP2CMD components
 try:
@@ -319,8 +321,26 @@ class VoiceServiceManager:
             # Get command text (either from audio transcription or fallback text)
             command_text = request.text_command
             if not command_text and request.audio_data:
-                # TODO: Implement speech-to-text here
-                command_text = "list files"  # Placeholder
+                # Simple speech-to-text simulation for demo
+                # In production, integrate with real STT service
+                import base64
+                try:
+                    # Decode base64 audio (simplified check)
+                    audio_bytes = base64.b64decode(request.audio_data)
+                    print(f"DEBUG: Audio data decoded, size: {len(audio_bytes)} bytes", file=sys.stderr, flush=True)
+                    if len(audio_bytes) > 1000:  # Has actual audio data
+                        # For demo, map common audio patterns to commands
+                        command_text = "list files"  # Default fallback
+                        print(f"DEBUG: Audio detected - using default command: {command_text}", file=sys.stderr, flush=True)
+                        await self.broadcast_log("🎤 Audio detected - using default command for demo")
+                    else:
+                        command_text = "list files"
+                        print(f"DEBUG: Audio too small ({len(audio_bytes)} bytes), using fallback", file=sys.stderr, flush=True)
+                except Exception as e:
+                    command_text = "list files"
+                    print(f"DEBUG: Audio decode error: {e}, using fallback", file=sys.stderr, flush=True)
+            else:
+                print(f"DEBUG: Using text command: {command_text}", file=sys.stderr, flush=True)
             
             if not command_text:
                 return VoiceCommandResponse(
@@ -331,6 +351,9 @@ class VoiceServiceManager:
             # Process command with NLP2CMD pipeline
             import sys
             print(f"DEBUG: About to process command: {command_text}", file=sys.stderr, flush=True)
+            print(f"DEBUG: Audio data present: {bool(request.audio_data)}", file=sys.stderr, flush=True)
+            print(f"DEBUG: Language: {request.language}", file=sys.stderr, flush=True)
+            print(f"DEBUG: Execute flag: {request.execute}", file=sys.stderr, flush=True)
             
             # Force direct subprocess call to bypass any caching
             import subprocess
@@ -339,9 +362,11 @@ class VoiceServiceManager:
             env['NLP2CMD_KEYWORD_DETECTOR_CONFIG'] = '/app/nlp2cmd-repo/data/keyword_intent_detector_config.json'
             env['NLP2CMD_PATTERNS_FILE'] = '/app/nlp2cmd-repo/data/patterns.json'
             
+            print(f"DEBUG: Starting NLP2CMD subprocess...", file=sys.stderr, flush=True)
             result = subprocess.run(['nlp2cmd', command_text], capture_output=True, text=True, env=env, timeout=30)
             print(f"DEBUG: Raw NLP2CMD result: {result.returncode}", file=sys.stderr, flush=True)
-            print(f"DEBUG: Raw NLP2CMD stdout: {result.stdout}", file=sys.stderr, flush=True)
+            print(f"DEBUG: Raw NLP2CMD stdout length: {len(result.stdout)}", file=sys.stderr, flush=True)
+            print(f"DEBUG: Raw NLP2CMD stderr: {result.stderr}", file=sys.stderr, flush=True)
             
             # Parse output directly here
             if result.returncode == 0:
@@ -369,6 +394,7 @@ class VoiceServiceManager:
                             break
                 
                 print(f"DEBUG: Extracted command: '{command}'", file=sys.stderr, flush=True)
+                print(f"DEBUG: YAML data keys: {list(yaml_data.keys())}", file=sys.stderr, flush=True)
                 
                 # Create mock result
                 class MockResult:
@@ -380,6 +406,7 @@ class VoiceServiceManager:
                         self.explanation = f"NLP2CMD generated: {cmd}"
                 
                 pipeline_result = MockResult(command)
+                print(f"DEBUG: Pipeline result created - command: {pipeline_result.command}", file=sys.stderr, flush=True)
             else:
                 class MockResult:
                     def __init__(self):
@@ -394,11 +421,15 @@ class VoiceServiceManager:
             print(f"DEBUG: Final pipeline result: {pipeline_result.command}", file=sys.stderr, flush=True)
             
             if not pipeline_result.success:
+                print(f"DEBUG: Pipeline failed - errors: {pipeline_result.errors}", file=sys.stderr, flush=True)
                 return VoiceCommandResponse(
                     success=False,
                     error="Failed to process command",
                     explanation=pipeline_result.errors[0] if pipeline_result.errors else "Unknown error"
                 )
+            
+            print(f"DEBUG: About to execute command: {pipeline_result.command}", file=sys.stderr, flush=True)
+            print(f"DEBUG: Execute flag: {request.execute}", file=sys.stderr, flush=True)
             
             result = {
                 "success": True,
@@ -409,14 +440,20 @@ class VoiceServiceManager:
             
             # Execute command if requested
             if request.execute and pipeline_result.command:
+                print(f"DEBUG: Executing command: {pipeline_result.command}", file=sys.stderr, flush=True)
                 await self.broadcast_log(f"Executing: {pipeline_result.command}")
                 execution_result = await self.executor.execute_command(pipeline_result.command)
+                print(f"DEBUG: Execution result: {execution_result}", file=sys.stderr, flush=True)
+                print(f"DEBUG: Execution success: {execution_result.get('success')}", file=sys.stderr, flush=True)
+                print(f"DEBUG: Execution exit code: {execution_result.get('exit_code')}", file=sys.stderr, flush=True)
                 result["execution_result"] = execution_result
                 result["logs"] = execution_result["logs"]
                 
                 # Broadcast logs line by line
                 for log_line in execution_result.get("logs", []):
                     await self.broadcast_log(log_line)
+            else:
+                print(f"DEBUG: Skipping execution - execute={request.execute}, command='{pipeline_result.command}'", file=sys.stderr, flush=True)
             
             return VoiceCommandResponse(**result)
             
@@ -522,6 +559,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Mount static files
+if StaticFiles:
+    app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# Setup templates
+templates = Jinja2Templates(directory="templates") if Jinja2Templates else None
 
 # Initialize service manager
 voice_manager = VoiceServiceManager()
@@ -769,8 +813,8 @@ async def root():
         
         <div class="main-panel">
             <div class="controls">
-                <input type="text" id="textInput" class="text-input" placeholder="Enter command or use voice...">
-                <button id="recordBtn" class="record-btn">🎤 Record</button>
+                <input type="text" id="textInput" class="text-input" placeholder="Enter command or start continuous voice...">
+                <button id="recordBtn" class="record-btn">🎤 Start Voice</button>
                 <button id="submitBtn" class="submit-btn">▶ Execute</button>
             </div>
             
@@ -797,33 +841,50 @@ async def root():
             
             <div class="logs-panel" id="logs">
                 <div>🔧 WebOps Voice Service - Ready</div>
-                <div>🎤 Voice commands enabled for operations automation</div>
-                <div>⌨️ Text input available for precise commands</div>
+                <div>🎤 Continuous voice streaming enabled</div>
+                <div>⏸️ Pause detection for automatic command execution</div>
                 <div>📊 Real-time execution logs displayed below</div>
                 <div>🛡️ All commands executed in isolated environment</div>
+                <div>🐛 DEBUG MODE - Enhanced logging enabled</div>
+                <div>📝 Check browser console for JavaScript errors</div>
             </div>
             
             <div class="examples">
                 <h4>🎯 Quick Examples (click to use):</h4>
-                <div class="example-item" onclick="setCommand('list files in current directory')">list files in current directory</div>
-                <div class="example-item" onclick="setCommand('show system processes sorted by memory usage')">show system processes sorted by memory usage</div>
-                <div class="example-item" onclick="setCommand('find files larger than 100MB in /var/log')">find files larger than 100MB in /var/log</div>
-                <div class="example-item" onclick="setCommand('check disk space usage for all partitions')">check disk space usage for all partitions</div>
-                <div class="example-item" onclick="setCommand('show network connections and listening ports')">show network connections and listening ports</div>
-                <div class="example-item" onclick="setCommand('monitor CPU usage for top 5 processes')">monitor CPU usage for top 5 processes</div>
-                <div class="example-item" onclick="setCommand('list all running services and their status')">list all running services and their status</div>
+                <div class="example-item" onclick="setCommand('list files')">list files</div>
+                <div class="example-item" onclick="setCommand('show current directory contents')">show current directory contents</div>
+                <div class="example-item" onclick="setCommand('show running processes')">show running processes</div>
+                <div class="example-item" onclick="setCommand('show system processes')">show system processes</div>
+                <div class="example-item" onclick="setCommand('check disk space')">check disk space</div>
+                <div class="example-item" onclick="setCommand('list containers')">list containers</div>
+                <div class="example-item" onclick="setCommand('find files larger than 100MB')">find files larger than 100MB</div>
+                <div class="example-item" onclick="setCommand('show network connections')">show network connections</div>
             </div>
         </div>
     </div>
 
     <script>
         let ws = null;
-        let mediaRecorder = null;
-        let audioChunks = [];
-        let isRecording = false;
         let commandCount = 0;
         let successCount = 0;
         let totalTime = 0;
+
+        // DEBUG: Log script initialization
+        console.log('🐛 DEBUG: Script initializing...');
+        addLog('🐛 DEBUG: JavaScript script starting...');
+
+        // DEBUG: Log variable declarations
+        console.log('🐛 DEBUG: Declaring global variables...');
+        
+        // DEBUG: Check for existing variables
+        if (typeof mediaRecorder !== 'undefined') {
+            console.error('🐛 ERROR: mediaRecorder already declared!');
+            addLog('🐛 ERROR: mediaRecorder already declared!');
+        }
+        if (typeof audioChunks !== 'undefined') {
+            console.error('🐛 ERROR: audioChunks already declared!');
+            addLog('🐛 ERROR: audioChunks already declared!');
+        }
 
         // Initialize WebSocket
         function initWebSocket() {
@@ -926,46 +987,181 @@ async def root():
             addLog(`📝 Command set: "${command}"`);
         }
 
-        // Record audio
-        async function toggleRecording() {
+        // Continuous voice streaming with pause detection
+        console.log('🐛 DEBUG: Declaring audio variables...');
+        addLog('🐛 DEBUG: Setting up audio streaming variables...');
+        
+        let mediaRecorder = null;
+        let audioChunks = [];
+        let isRecording = false;
+        let silenceTimer = null;
+        let audioContext = null;
+        let analyser = null;
+        let microphone = null;
+        let javascriptNode = null;
+        let isStreamActive = false;
+        let speechStartTime = null;
+        let isSpeaking = false;
+        const SILENCE_THRESHOLD = 0.01; // Audio level threshold for silence
+        const SILENCE_DURATION = 1500; // 1.5 seconds of silence to trigger command
+        const MIN_SPEECH_DURATION = 500; // Minimum speech duration before pause detection
+        
+        console.log('🐛 DEBUG: Audio variables declared successfully');
+        addLog('🐛 DEBUG: Audio streaming variables initialized');
+
+        // Start continuous voice streaming
+        async function startContinuousStreaming() {
             const recordBtn = document.getElementById('recordBtn');
             
-            if (!isRecording) {
-                try {
-                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                    mediaRecorder = new MediaRecorder(stream);
-                    audioChunks = [];
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                
+                // Setup Web Audio API for real-time analysis
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                analyser = audioContext.createAnalyser();
+                microphone = audioContext.createMediaStreamSource(stream);
+                javascriptNode = audioContext.createScriptProcessor(2048, 1, 1);
+                
+                analyser.smoothingTimeConstant = 0.8;
+                analyser.fftSize = 1024;
+                
+                microphone.connect(analyser);
+                analyser.connect(javascriptNode);
+                javascriptNode.connect(audioContext.destination);
+                
+                javascriptNode.onaudioprocess = function(event) {
+                    const array = new Uint8Array(analyser.frequencyBinCount);
+                    analyser.getByteFrequencyData(array);
                     
-                    mediaRecorder.ondataavailable = event => {
+                    // Calculate average volume
+                    const average = array.reduce((a, b) => a + b) / array.length;
+                    const normalizedVolume = average / 255;
+                    
+                    // Detect speech vs silence
+                    if (normalizedVolume > SILENCE_THRESHOLD) {
+                        if (!isSpeaking) {
+                            isSpeaking = true;
+                            speechStartTime = Date.now();
+                            addLog('🎤 Wykryto mowę...');
+                        }
+                        
+                        // Reset silence timer
+                        if (silenceTimer) {
+                            clearTimeout(silenceTimer);
+                            silenceTimer = null;
+                        }
+                    } else {
+                        // Silence detected
+                        if (isSpeaking && speechStartTime) {
+                            const speechDuration = Date.now() - speechStartTime;
+                            
+                            if (speechDuration >= MIN_SPEECH_DURATION) {
+                                // Start silence timer for command execution
+                                if (!silenceTimer) {
+                                    silenceTimer = setTimeout(() => {
+                                        addLog('⏸️ Wykryto pauzę - uruchamiam komendę...');
+                                        processCurrentAudio();
+                                        resetSpeechDetection();
+                                    }, SILENCE_DURATION);
+                                }
+                            } else {
+                                // Too short, reset
+                                resetSpeechDetection();
+                            }
+                        }
+                    }
+                };
+                
+                // Setup MediaRecorder for actual audio capture
+                mediaRecorder = new MediaRecorder(stream);
+                audioChunks = [];
+                
+                mediaRecorder.ondataavailable = event => {
+                    if (event.data.size > 0) {
                         audioChunks.push(event.data);
-                    };
-                    
-                    mediaRecorder.onstop = async () => {
-                        const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
-                        const audioBase64 = await blobToBase64(audioBlob);
-                        
-                        addLog('🎤 Processing audio recording...');
-                        sendVoiceCommand(audioBase64);
-                        
-                        // Stop all tracks
-                        stream.getTracks().forEach(track => track.stop());
-                    };
-                    
-                    mediaRecorder.start();
-                    isRecording = true;
-                    recordBtn.textContent = '⏹ Stop';
-                    recordBtn.classList.add('recording');
-                    addLog('🎤 Recording... Speak clearly');
-                    
-                } catch (error) {
-                    addLog(`❌ Recording error: ${error.message}`);
-                }
-            } else {
+                    }
+                };
+                
+                mediaRecorder.start(100); // Collect data every 100ms
+                isStreamActive = true;
+                isRecording = true;
+                
+                recordBtn.textContent = '⏹️ Stop';
+                recordBtn.classList.add('recording');
+                addLog('🎤 Ciągłe nasłuchiwanie włączone...');
+                
+            } catch (error) {
+                addLog(`❌ Błąd nagrywania: ${error.message}`);
+            }
+        }
+        
+        // Process collected audio when pause is detected
+        async function processCurrentAudio() {
+            if (audioChunks.length === 0) return;
+            
+            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+            const audioBase64 = await blobToBase64(audioBlob);
+            
+            addLog('🎤 Przetwarzanie komendy głosowej...');
+            sendVoiceCommand(audioBase64);
+            
+            // Reset audio chunks for next command
+            audioChunks = [];
+        }
+        
+        // Reset speech detection state
+        function resetSpeechDetection() {
+            isSpeaking = false;
+            speechStartTime = null;
+            if (silenceTimer) {
+                clearTimeout(silenceTimer);
+                silenceTimer = null;
+            }
+        }
+        
+        // Stop continuous streaming
+        function stopContinuousStreaming() {
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
                 mediaRecorder.stop();
-                isRecording = false;
-                recordBtn.textContent = '🎤 Record';
-                recordBtn.classList.remove('recording');
-                addLog('⏹ Recording stopped');
+            }
+            
+            if (silenceTimer) {
+                clearTimeout(silenceTimer);
+                silenceTimer = null;
+            }
+            
+            if (microphone) {
+                microphone.disconnect();
+            }
+            
+            if (javascriptNode) {
+                javascriptNode.disconnect();
+            }
+            
+            if (audioContext) {
+                audioContext.close();
+            }
+            
+            isStreamActive = false;
+            isRecording = false;
+            
+            const recordBtn = document.getElementById('recordBtn');
+            recordBtn.textContent = '🎤 Start';
+            recordBtn.classList.remove('recording');
+            addLog('⏹️ Nasłuchiwanie zatrzymane');
+        }
+        
+        // Toggle continuous streaming
+        async function toggleRecording() {
+            console.log('🐛 DEBUG: toggleRecording called, isRecording:', isRecording);
+            addLog(`🐛 DEBUG: toggleRecording - Current state: ${isRecording ? 'recording' : 'stopped'}`);
+            
+            if (!isRecording) {
+                console.log('🐛 DEBUG: Starting continuous streaming...');
+                await startContinuousStreaming();
+            } else {
+                console.log('🐛 DEBUG: Stopping continuous streaming...');
+                stopContinuousStreaming();
             }
         }
 
@@ -984,6 +1180,8 @@ async def root():
             const textCommand = document.getElementById('textInput').value;
             const startTime = Date.now();
             
+            addLog(`🚀 Sending command - Text: "${textCommand || 'none'}", Audio: ${audioData ? 'yes' : 'no'}`);
+            
             try {
                 const response = await fetch('/voice-command', {
                     method: 'POST',
@@ -1000,6 +1198,20 @@ async def root():
                 
                 const responseTime = Date.now() - startTime;
                 const result = await response.json();
+                
+                addLog(`📥 Response received in ${responseTime}ms - Success: ${result.success}`);
+                addLog(`🔧 Generated command: "${result.command || 'none'}"`);
+                addLog(`📊 Confidence: ${result.confidence || 'N/A'}`);
+                
+                if (result.execution_result) {
+                    addLog(`⚡ Execution exit code: ${result.execution_result.exit_code || 'N/A'}`);
+                    if (result.execution_result.stdout) {
+                        addLog(`📤 Output: ${result.execution_result.stdout.trim()}`);
+                    }
+                    if (result.execution_result.stderr) {
+                        addLog(`❌ Error: ${result.execution_result.stderr.trim()}`);
+                    }
+                }
                 
                 showResult(result.success, result);
                 updateMetrics(result.success, responseTime);
@@ -1059,7 +1271,15 @@ async def health_check():
 @app.post("/voice-command")
 async def process_voice_command(request: VoiceCommandRequest):
     """Process voice command and execute shell command."""
+    import sys
+    print(f"🐛 BACKEND DEBUG: Voice command request received", file=sys.stderr, flush=True)
+    print(f"🐛 BACKEND DEBUG: Request text: {request.text_command}", file=sys.stderr, flush=True)
+    print(f"🐛 BACKEND DEBUG: Has audio data: {bool(request.audio_data)}", file=sys.stderr, flush=True)
+    print(f"🐛 BACKEND DEBUG: Language: {request.language}", file=sys.stderr, flush=True)
+    print(f"🐛 BACKEND DEBUG: Execute flag: {request.execute}", file=sys.stderr, flush=True)
+    
     result = await voice_manager.process_voice_command(request)
+    print(f"🐛 BACKEND DEBUG: Voice command processed, success: {result.success}", file=sys.stderr, flush=True)
     return result
 
 

@@ -343,9 +343,6 @@ async def root():
 
     <script>
         let ws = null;
-        let mediaRecorder = null;
-        let audioChunks = [];
-        let isRecording = false;
 
         // Initialize WebSocket
         function initWebSocket() {
@@ -401,46 +398,170 @@ async def root():
             }
         }
 
-        // Record audio
-        async function toggleRecording() {
+        // Continuous voice streaming with pause detection
+        let mediaRecorder = null;
+        let audioChunks = [];
+        let isRecording = false;
+        let silenceTimer = null;
+        let audioContext = null;
+        let analyser = null;
+        let microphone = null;
+        let javascriptNode = null;
+        let isStreamActive = false;
+        let speechStartTime = null;
+        let isSpeaking = false;
+        const SILENCE_THRESHOLD = 0.01; // Audio level threshold for silence
+        const SILENCE_DURATION = 1500; // 1.5 seconds of silence to trigger command
+        const MIN_SPEECH_DURATION = 500; // Minimum speech duration before pause detection
+
+        // Start continuous voice streaming
+        async function startContinuousStreaming() {
             const recordBtn = document.getElementById('recordBtn');
             
-            if (!isRecording) {
-                try {
-                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                    mediaRecorder = new MediaRecorder(stream);
-                    audioChunks = [];
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                
+                // Setup Web Audio API for real-time analysis
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                analyser = audioContext.createAnalyser();
+                microphone = audioContext.createMediaStreamSource(stream);
+                javascriptNode = audioContext.createScriptProcessor(2048, 1, 1);
+                
+                analyser.smoothingTimeConstant = 0.8;
+                analyser.fftSize = 1024;
+                
+                microphone.connect(analyser);
+                analyser.connect(javascriptNode);
+                javascriptNode.connect(audioContext.destination);
+                
+                javascriptNode.onaudioprocess = function(event) {
+                    const array = new Uint8Array(analyser.frequencyBinCount);
+                    analyser.getByteFrequencyData(array);
                     
-                    mediaRecorder.ondataavailable = event => {
+                    // Calculate average volume
+                    const average = array.reduce((a, b) => a + b) / array.length;
+                    const normalizedVolume = average / 255;
+                    
+                    // Detect speech vs silence
+                    if (normalizedVolume > SILENCE_THRESHOLD) {
+                        if (!isSpeaking) {
+                            isSpeaking = true;
+                            speechStartTime = Date.now();
+                            addLog('🎤 Wykryto mowę...');
+                        }
+                        
+                        // Reset silence timer
+                        if (silenceTimer) {
+                            clearTimeout(silenceTimer);
+                            silenceTimer = null;
+                        }
+                    } else {
+                        // Silence detected
+                        if (isSpeaking && speechStartTime) {
+                            const speechDuration = Date.now() - speechStartTime;
+                            
+                            if (speechDuration >= MIN_SPEECH_DURATION) {
+                                // Start silence timer for command execution
+                                if (!silenceTimer) {
+                                    silenceTimer = setTimeout(() => {
+                                        addLog('⏸️ Wykryto pauzę - uruchamiam komendę...');
+                                        processCurrentAudio();
+                                        resetSpeechDetection();
+                                    }, SILENCE_DURATION);
+                                }
+                            } else {
+                                // Too short, reset
+                                resetSpeechDetection();
+                            }
+                        }
+                    }
+                };
+                
+                // Setup MediaRecorder for actual audio capture
+                mediaRecorder = new MediaRecorder(stream);
+                audioChunks = [];
+                
+                mediaRecorder.ondataavailable = event => {
+                    if (event.data.size > 0) {
                         audioChunks.push(event.data);
-                    };
-                    
-                    mediaRecorder.onstop = async () => {
-                        const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
-                        const audioBase64 = await blobToBase64(audioBlob);
-                        
-                        addLog('🎤 Przetwarzanie nagrania...');
-                        sendVoiceCommand(audioBase64);
-                        
-                        // Stop all tracks
-                        stream.getTracks().forEach(track => track.stop());
-                    };
-                    
-                    mediaRecorder.start();
-                    isRecording = true;
-                    recordBtn.textContent = '⏹️ Stop';
-                    recordBtn.classList.add('recording');
-                    addLog('🎤 Nagrywanie...');
-                    
-                } catch (error) {
-                    addLog(`❌ Błąd nagrywania: ${error.message}`);
-                }
-            } else {
+                    }
+                };
+                
+                mediaRecorder.start(100); // Collect data every 100ms
+                isStreamActive = true;
+                isRecording = true;
+                
+                recordBtn.textContent = '⏹️ Stop';
+                recordBtn.classList.add('recording');
+                addLog('🎤 Ciągłe nasłuchiwanie włączone...');
+                
+            } catch (error) {
+                addLog(`❌ Błąd nagrywania: ${error.message}`);
+            }
+        }
+        
+        // Process collected audio when pause is detected
+        async function processCurrentAudio() {
+            if (audioChunks.length === 0) return;
+            
+            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+            const audioBase64 = await blobToBase64(audioBlob);
+            
+            addLog('🎤 Przetwarzanie komendy głosowej...');
+            sendVoiceCommand(audioBase64);
+            
+            // Reset audio chunks for next command
+            audioChunks = [];
+        }
+        
+        // Reset speech detection state
+        function resetSpeechDetection() {
+            isSpeaking = false;
+            speechStartTime = null;
+            if (silenceTimer) {
+                clearTimeout(silenceTimer);
+                silenceTimer = null;
+            }
+        }
+        
+        // Stop continuous streaming
+        function stopContinuousStreaming() {
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
                 mediaRecorder.stop();
-                isRecording = false;
-                recordBtn.textContent = '🎤 Nagraj komendę';
-                recordBtn.classList.remove('recording');
-                addLog('⏹️ Nagrywanie zatrzymane');
+            }
+            
+            if (silenceTimer) {
+                clearTimeout(silenceTimer);
+                silenceTimer = null;
+            }
+            
+            if (microphone) {
+                microphone.disconnect();
+            }
+            
+            if (javascriptNode) {
+                javascriptNode.disconnect();
+            }
+            
+            if (audioContext) {
+                audioContext.close();
+            }
+            
+            isStreamActive = false;
+            isRecording = false;
+            
+            const recordBtn = document.getElementById('recordBtn');
+            recordBtn.textContent = '🎤 Start';
+            recordBtn.classList.remove('recording');
+            addLog('⏹️ Nasłuchiwanie zatrzymane');
+        }
+        
+        // Toggle continuous streaming
+        async function toggleRecording() {
+            if (!isRecording) {
+                await startContinuousStreaming();
+            } else {
+                stopContinuousStreaming();
             }
         }
 
