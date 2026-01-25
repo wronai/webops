@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  nlp2cmd-voice:
+    build:
+      context: .
+      dockerfile: Dockerfile.voice
+    container_name: nlp2cmd-voice
+    ports:
+      - "8000:8000"  # API service
+      - "3000:3000"  # Frontend (if needed)
+    volumes:
+      - ./logs:/app/logs
+      - ./uploads:/app/uploads
+      - /var/run/docker.sock:/var/run/docker.sock  # For Docker commands
+    environment:
+      - PYTHONPATH=/app/src
+      - NLP2CMD_HOST=0.0.0.0
+      - NLP2CMD_PORT=8000
+      - NLP2CMD_DEBUG=false
+      - NLP2CMD_LOG_LEVEL=info
+      - NLP2CMD_AUTO_EXECUTE=true
+    restart: unless-stopped
+    networks:
+      - nlp2cmd-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Optional: Add a reverse proxy for SSL termination
+  nginx:
+    image: nginx:alpine
+    container_name: nlp2cmd-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./nginx/ssl:/etc/nginx/ssl
+    depends_on:
+      - nlp2cmd-voice
+    networks:
+      - nlp2cmd-network
+    restart: unless-stopped
+    profiles:
+      - production
+
+networks:
+  nlp2cmd-network:
+    driver: bridge
+
+volumes:
+  logs:
+  uploads:
