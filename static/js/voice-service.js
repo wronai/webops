@@ -112,7 +112,10 @@ function showResult(success, data) {
     
     resultDiv.style.display = 'block';
     
-    if (success) {
+    // Determine actual success based on exit code if execution_result exists
+    const actualSuccess = data.execution_result ? data.execution_result.exit_code === 0 : success;
+    
+    if (actualSuccess) {
         resultDiv.innerHTML = `
             <h3>✅ Command Executed Successfully</h3>
             <div><strong>Command:</strong></div>
@@ -126,9 +129,50 @@ function showResult(success, data) {
             ` : ''}
         `;
     } else {
+        // Provide better error messages for common exit codes
+        let errorMessage = data.error || 'Unknown error occurred';
+        let errorTitle = '❌ Command Execution Failed';
+        
+        if (data.execution_result) {
+            const exitCode = data.execution_result.exit_code;
+            switch (exitCode) {
+                case 127:
+                    errorMessage = 'Command not found. The generated command is not available in the current environment.';
+                    break;
+                case 1:
+                    errorMessage = data.execution_result.stderr || 'Command failed with exit code 1 (general error).';
+                    break;
+                case 2:
+                    errorMessage = 'Command failed with exit code 2 (misuse of shell builtins).';
+                    break;
+                case 126:
+                    errorMessage = 'Command found but not executable (permission denied).';
+                    break;
+                case 124:
+                    errorMessage = 'Command execution timed out.';
+                    break;
+                default:
+                    if (exitCode > 128) {
+                        errorMessage = `Command terminated by signal ${exitCode - 128}.`;
+                    } else {
+                        errorMessage = `Command failed with exit code ${exitCode}.`;
+                    }
+            }
+        }
+        
         resultDiv.innerHTML = `
-            <h3>❌ Error</h3>
-            <p>${data.error || 'Unknown error occurred'}</p>
+            <h3>${errorTitle}</h3>
+            <div><strong>Command:</strong></div>
+            <div class="command-display">${data.command || 'No command generated'}</div>
+            <p><strong>Confidence:</strong> ${data.confidence ? (data.confidence * 100).toFixed(1) + '%' : 'N/A'}</p>
+            <p><strong>Explanation:</strong> ${data.explanation || 'No explanation provided'}</p>
+            ${data.execution_result ? `
+                <p><strong>Exit Code:</strong> ${data.execution_result.exit_code || 'N/A'}</p>
+                ${data.execution_result.stdout ? `<p><strong>Output:</strong></p><pre>${data.execution_result.stdout}</pre>` : ''}
+                ${data.execution_result.stderr ? `<p><strong>Error:</strong></p><pre>${data.execution_result.stderr}</pre>` : ''}
+            ` : ''}
+            <p><strong>Error Details:</strong></p>
+            <div class="error-message">${errorMessage}</div>
         `;
     }
 }
