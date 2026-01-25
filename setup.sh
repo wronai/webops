@@ -25,7 +25,7 @@ mkdir -p logs workspace uploads nginx/ssl monitoring/{prometheus,grafana/{dashbo
 
 # Build the Docker image
 echo "🔨 Building WebOps Docker image..."
-docker build -f Dockerfile.standalone -t webops-voice:latest .
+docker build -f Dockerfile.submodule -t webops-voice:latest .
 
 # Start the service
 echo "🚀 Starting WebOps voice service..."
@@ -40,9 +40,9 @@ echo "⏳ Waiting for service to be ready..."
 sleep 15
 
 # Check if service is running
-if curl -f http://localhost:8000/health &> /dev/null; then
+if curl -f http://localhost:8001/health &> /dev/null; then
     echo "✅ WebOps voice service is running!"
-    echo "🌐 Open your browser and go to: http://localhost:8000"
+    echo "🌐 Open your browser and go to: http://localhost:8001"
     echo "🎤 You can now use voice commands for operations!"
     echo ""
     echo "📊 Available commands:"

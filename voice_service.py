@@ -76,9 +76,17 @@ class ShellExecutor:
         self.max_execution_time = max_execution_time
         self.logger = logging.getLogger(__name__)
         
-    async def execute_command(self, command: str, working_dir: str = "/app") -> Dict[str, Any]:
+    async def execute_command(self, command: str, working_dir: str = None) -> Dict[str, Any]:
         """Execute shell command and return result with logs."""
         try:
+            # Use current working directory if none specified
+            if working_dir is None:
+                working_dir = os.getcwd()
+            
+            # Ensure the working directory exists
+            if not os.path.exists(working_dir):
+                working_dir = os.getcwd()
+            
             # Create a temporary log file
             with tempfile.NamedTemporaryFile(mode='w+', suffix='.log', delete=False) as log_file:
                 log_path = log_file.name
@@ -148,27 +156,38 @@ class VoiceServiceManager:
         self.active_connections: List[WebSocket] = []
         self.executor = ShellExecutor()
         
-        # Initialize NLP2CMD service if available
+        # Always initialize pipeline first to ensure it exists
+        self.pipeline = self._create_mock_pipeline()
+        self.nlp2cmd_service = None
+        
+        # Try to initialize NLP2CMD service if available
         if NLP2CMD_AVAILABLE and NLP2CMDService is not None:
             try:
-                # Create service configuration
-                config = ServiceConfig(
-                    host="0.0.0.0",
-                    port=8000,
-                    debug=False,
-                    log_level="info",
-                    auto_execute=True
-                )
+                # Set environment variables for ServiceConfig
+                os.environ["NLP2CMD_HOST"] = "0.0.0.0"
+                os.environ["NLP2CMD_PORT"] = "8000"
+                os.environ["NLP2CMD_DEBUG"] = "false"
+                os.environ["NLP2CMD_LOG_LEVEL"] = "info"
+                os.environ["NLP2CMD_AUTO_EXECUTE"] = "true"
+                
+                # Create service configuration (reads from env)
+                config = ServiceConfig()
                 self.nlp2cmd_service = NLP2CMDService(config)
                 print("✅ NLP2CMD Service initialized successfully")
+                
+                # Try to use the real pipeline if available
+                if hasattr(self.nlp2cmd_service, 'pipeline') and self.nlp2cmd_service.pipeline is not None:
+                    self.pipeline = self.nlp2cmd_service.pipeline
+                    print("✅ Using NLP2CMD pipeline")
+                else:
+                    print("⚠️ NLP2CMD pipeline not available, using mock pipeline")
+                
             except Exception as e:
                 print(f"⚠️ Failed to initialize NLP2CMD service: {e}")
                 self.nlp2cmd_service = None
                 self.pipeline = self._create_mock_pipeline()
         else:
             print("⚠️ NLP2CMD service not available, using mock pipeline")
-            self.nlp2cmd_service = None
-            self.pipeline = self._create_mock_pipeline()
         
     def _create_mock_pipeline(self):
         """Create mock pipeline for testing without NLP2CMD."""
@@ -180,6 +199,7 @@ class VoiceServiceManager:
                         self.command = self._generate_command(query)
                         self.confidence = 0.85
                         self.errors = []
+                        self.explanation = f"Generated command: {self.command}"
                     
                     def _generate_command(self, query):
                         query_lower = query.lower()
@@ -263,8 +283,6 @@ class VoiceServiceManager:
                     # Broadcast logs line by line
                     for log_line in execution_result.get("logs", []):
                         await self.broadcast_log(log_line)
-                for log_line in execution_result["logs"]:
-                    await self.broadcast_log(log_line)
             
             return VoiceCommandResponse(**result)
             
@@ -274,30 +292,56 @@ class VoiceServiceManager:
                 error=str(e)
             )
     
+    async def _process_with_mock_pipeline(self, text: str, language: str, execute: bool) -> Dict[str, Any]:
+        """Process command using mock pipeline."""
+        # Use mock pipeline
+        result = self.pipeline.process(text)
+        
+        if result.success and execute:
+            # Execute the command
+            await self.broadcast_log(f"Executing: {result.command}")
+            execution_result = await self.executor.execute_command(result.command)
+            
+            return {
+                "success": True,
+                "command": result.command,
+                "explanation": result.explanation,
+                "confidence": result.confidence,
+                "execution_result": execution_result,
+                "logs": execution_result.get("logs", []),
+            }
+        else:
+            return {
+                "success": result.success,
+                "command": result.command,
+                "explanation": result.explanation,
+                "confidence": result.confidence,
+                "execution_result": None,
+                "logs": result.errors if hasattr(result, 'errors') else [],
+            }
+
     async def _process_with_nlp2cmd_service(self, text: str, language: str, execute: bool) -> Dict[str, Any]:
         """Process command using NLP2CMD service."""
         try:
-            # Create a mock request for the service
-            class MockRequest:
-                def __init__(self, query_text):
-                    self.query = query_text
-                    self.dsl = "auto"
-                    self.appspec = None
+            # Use the pipeline directly from the service
+            pipeline = self.nlp2cmd_service.pipeline
+            if pipeline is None:
+                # Fallback to mock
+                return await self._process_with_mock_pipeline(text, language, execute)
             
-            # Process using NLP2CMD service
-            request = MockRequest(text)
-            response = self.nlp2cmd_service.process_query(request)
+            # Process query using pipeline
+            result = pipeline.process(text)
             
-            if response.success and execute:
+            if result.success and execute:
                 # Execute the command
-                await self.broadcast_log(f"Executing: {response.command}")
-                execution_result = await self.executor.execute_command(response.command)
+                await self.broadcast_log(f"Executing: {result.command}")
+                execution_result = await self.executor.execute_command(result.command)
                 
-                result = {
+                response_data = {
                     "success": True,
-                    "command": response.command,
-                    "explanation": response.explanation or f"Generated command: {response.command}",
-                    "confidence": getattr(response, 'confidence', 0.85),
+                    "command": result.command,
+                    "explanation": result.explanation or f"Generated command: {result.command}",
+                    "confidence": getattr(result, 'confidence', 0.85),
                     "execution_result": execution_result,
                     "logs": execution_result.get("logs", []),
                 }
@@ -306,15 +350,15 @@ class VoiceServiceManager:
                 for log_line in execution_result.get("logs", []):
                     await self.broadcast_log(log_line)
                     
-                return result
+                return response_data
             else:
                 return {
-                    "success": response.success,
-                    "command": response.command,
-                    "explanation": response.explanation or f"Generated command: {response.command}",
-                    "confidence": getattr(response, 'confidence', 0.85),
+                    "success": result.success,
+                    "command": result.command,
+                    "explanation": result.explanation or f"Generated command: {result.command}",
+                    "confidence": getattr(result, 'confidence', 0.85),
                     "execution_result": None,
-                    "logs": response.logs if hasattr(response, 'logs') else [],
+                    "logs": result.errors if hasattr(result, 'errors') else [],
                 }
                 
         except Exception as e:
@@ -913,6 +957,6 @@ if __name__ == "__main__":
     uvicorn.run(
         app,
         host="0.0.0.0",
-        port=8000,
+        port=8001,
         log_level="info"
     )

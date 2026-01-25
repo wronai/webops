@@ -1,5 +1,5 @@
 # WebOps Voice Service Dockerfile
-# Uses nlp2cmd package from PyPI with optimized caching
+# Uses nlp2cmd from submodule with optimized caching
 
 FROM python:3.11-slim
 
@@ -35,8 +35,11 @@ COPY requirements-voice.txt .
 # Install base Python dependencies first (cached layer)
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install nlp2cmd package from PyPI (use stable version)
-RUN pip install "nlp2cmd<1.0.30"
+# Copy nlp2cmd submodule (cached if unchanged)
+COPY nlp2cmd-repo/ ./nlp2cmd-repo/
+
+# Install nlp2cmd from submodule
+RUN pip install -e ./nlp2cmd-repo/
 
 # Copy application files (last layer for frequent changes)
 COPY voice_service.py .
@@ -44,7 +47,7 @@ COPY docker_app.py .
 COPY tests/ ./tests/
 
 # Set environment variables
-ENV PYTHONPATH=/app
+ENV PYTHONPATH=/app:/app/nlp2cmd-repo/src
 ENV NLP2CMD_HOST=0.0.0.0
 ENV NLP2CMD_PORT=8000
 ENV NLP2CMD_DEBUG=false

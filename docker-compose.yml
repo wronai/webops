@@ -4,17 +4,17 @@ services:
   webops-voice:
     build:
       context: .
-      dockerfile: Dockerfile.standalone
+      dockerfile: Dockerfile.submodule
     container_name: webops-voice
     ports:
-      - "8000:8000"  # API and web interface
+      - "8001:8001"  # API and web interface
     volumes:
       - ./logs:/app/logs
       - ./workspace:/app/workspace
       - /var/run/docker.sock:/var/run/docker.sock  # For Docker commands
       - ./uploads:/app/uploads
     environment:
-      - PYTHONPATH=/app
+      - PYTHONPATH=/app:/app/nlp2cmd-repo/src
       - NLP2CMD_HOST=0.0.0.0
       - NLP2CMD_PORT=8000
       - NLP2CMD_DEBUG=false
