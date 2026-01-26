@@ -224,7 +224,7 @@ class TestWebOpsGUI:
 async def run_gui_tests():
     """Run GUI tests manually without pytest"""
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=False)
+        browser = await p.chromium.launch(headless=True)
         context = await browser.new_context()
         page = await context.new_page()
         
