@@ -5,6 +5,7 @@ WebOps Voice Service - Docker-based voice-controlled command execution
 from __future__ import annotations
 
 import asyncio
+from collections import OrderedDict
 import json
 import logging
 import os
@@ -157,6 +158,11 @@ class VoiceServiceManager:
     def __init__(self):
         self.active_connections: List[WebSocket] = []
         self.executor = ShellExecutor()
+
+        self._generation_cache_lock: asyncio.Lock | None = None
+        self._generation_cache_ttl_seconds = int(os.environ.get("WEBOPS_GENERATION_CACHE_TTL_SECONDS", "300"))
+        self._generation_cache_max_size = int(os.environ.get("WEBOPS_GENERATION_CACHE_MAX_SIZE", "512"))
+        self._generation_cache: "OrderedDict[str, tuple[float, object]]" = OrderedDict()
         
         # Always initialize NLP2CMD pipeline directly
         self.pipeline = self._create_nlp2cmd_pipeline()
@@ -306,6 +312,65 @@ class VoiceServiceManager:
                     return NLP2CMDResult(str(e))
         
         return NLP2CMDPipeline()
+
+    def _normalize_cache_key(self, text: str, language: str) -> str:
+        normalized = " ".join((text or "").strip().lower().split())
+        lang = (language or "").strip().lower()
+        return f"{lang}:{normalized}"
+
+    def _to_cached_result(self, result: object) -> object:
+        success = bool(getattr(result, "success", False))
+        command = getattr(result, "command", "") or ""
+        confidence = getattr(result, "confidence", 0.0)
+        if confidence in (None, 0.0):
+            confidence = getattr(result, "detection_confidence", 0.0) or 0.0
+        errors = getattr(result, "errors", [])
+        if not isinstance(errors, list):
+            errors = [str(errors)]
+        explanation = getattr(result, "explanation", None)
+
+        class _CachedResult:
+            __slots__ = ("success", "command", "confidence", "errors", "explanation")
+
+            def __init__(self, success, command, confidence, errors, explanation):
+                self.success = success
+                self.command = command
+                self.confidence = confidence
+                self.errors = errors
+                self.explanation = explanation
+
+        return _CachedResult(success, command, float(confidence or 0.0), errors, explanation)
+
+    def _get_cache_lock(self) -> asyncio.Lock:
+        if self._generation_cache_lock is None:
+            self._generation_cache_lock = asyncio.Lock()
+        return self._generation_cache_lock
+
+    async def _cache_get(self, key: str) -> object | None:
+        now = asyncio.get_running_loop().time()
+        async with self._get_cache_lock():
+            item = self._generation_cache.get(key)
+            if item is None:
+                return None
+            ts, value = item
+            if self._generation_cache_ttl_seconds > 0 and (now - ts) > self._generation_cache_ttl_seconds:
+                try:
+                    del self._generation_cache[key]
+                except KeyError:
+                    pass
+                return None
+            self._generation_cache.move_to_end(key)
+            return value
+
+    async def _cache_set(self, key: str, value: object) -> None:
+        now = asyncio.get_running_loop().time()
+        async with self._get_cache_lock():
+            self._generation_cache[key] = (now, value)
+            self._generation_cache.move_to_end(key)
+            max_size = max(0, int(self._generation_cache_max_size))
+            if max_size and len(self._generation_cache) > max_size:
+                while len(self._generation_cache) > max_size:
+                    self._generation_cache.popitem(last=False)
         
     async def connect(self, websocket: WebSocket):
         """Accept WebSocket connection."""
@@ -365,7 +430,13 @@ class VoiceServiceManager:
             print(f"DEBUG: Language: {request.language}", file=sys.stderr, flush=True)
             print(f"DEBUG: Execute flag: {request.execute}", file=sys.stderr, flush=True)
 
-            pipeline_result = self.pipeline.process(command_text)
+            cache_key = self._normalize_cache_key(command_text, request.language)
+            cached = await self._cache_get(cache_key)
+            if cached is not None:
+                pipeline_result = cached
+            else:
+                pipeline_result = self.pipeline.process(command_text)
+                await self._cache_set(cache_key, self._to_cached_result(pipeline_result))
             
             print(f"DEBUG: Final pipeline result: {pipeline_result.command}", file=sys.stderr, flush=True)
             
