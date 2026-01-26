@@ -42,8 +42,13 @@ COPY nlp2cmd-repo/ ./nlp2cmd-repo/
 # Install nlp2cmd from submodule
 RUN pip install -e ./nlp2cmd-repo/
 
+# Copy nlp2cmd data files
+RUN mkdir -p /app/nlp2cmd-repo/data
+COPY nlp2cmd-repo/data/ ./nlp2cmd-repo/data/
+
 # Copy application files (last layer for frequent changes)
-COPY voice_service_clean.py voice_service.py
+COPY voice_service_clean.py voice_service_clean.py
+COPY voice_service.py voice_service.py
 COPY docker_app.py .
 COPY tests/ ./tests/
 COPY static/ ./static/

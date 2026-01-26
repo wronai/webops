@@ -36,8 +36,8 @@ except ImportError:
     Field = lambda x, **kwargs: x
     uvicorn = None
 
-from ..service import NLP2CMDService, ServiceConfig
-from ..generation.pipeline import RuleBasedPipeline
+from nlp2cmd.service import NLP2CMDService, ServiceConfig
+from nlp2cmd.generation.pipeline import RuleBasedPipeline
 
 
 class VoiceCommandRequest(BaseModel):
