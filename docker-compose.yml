@@ -21,6 +21,10 @@ services:
       - NLP2CMD_LOG_LEVEL=info
       - NLP2CMD_AUTO_EXECUTE=true
       - WORKSPACE_DIR=/app/workspace
+      - NLP2CMD_USE_ENHANCED_CONTEXT=false
+      - NLP2CMD_ENABLE_HEAVY_NLP=false
+      - NLP2CMD_ENABLE_SPACY_LEMMATIZATION=false
+      - NLP2CMD_MEASURE_RESOURCES=0
     restart: unless-stopped
     networks:
       - webops-network
