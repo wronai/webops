@@ -167,7 +167,7 @@ class VoiceServiceManager:
         """Create NLP2CMD pipeline."""
         if NLP2CMD_AVAILABLE and RuleBasedPipeline is not None:
             try:
-                return RuleBasedPipeline()
+                return RuleBasedPipeline(use_enhanced_context=False)
             except Exception as e:
                 print(
                     f"⚠️ Failed to init in-process RuleBasedPipeline ({e}); falling back to subprocess CLI",
