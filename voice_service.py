@@ -161,10 +161,21 @@ class VoiceServiceManager:
         # Always initialize NLP2CMD pipeline directly
         self.pipeline = self._create_nlp2cmd_pipeline()
         self.nlp2cmd_service = None
-        print("✅ Using direct NLP2CMD CLI pipeline")
+        print("✅ NLP2CMD pipeline initialized")
         
     def _create_nlp2cmd_pipeline(self):
-        """Create direct NLP2CMD pipeline using subprocess."""
+        """Create NLP2CMD pipeline."""
+        if NLP2CMD_AVAILABLE and RuleBasedPipeline is not None:
+            try:
+                return RuleBasedPipeline()
+            except Exception as e:
+                print(
+                    f"⚠️ Failed to init in-process RuleBasedPipeline ({e}); falling back to subprocess CLI",
+                    file=sys.stderr,
+                    flush=True,
+                )
+
+        # Fallback: subprocess CLI
         class NLP2CMDPipeline:
             def process(self, query):
                 import subprocess
@@ -349,74 +360,12 @@ class VoiceServiceManager:
                 )
             
             # Process command with NLP2CMD pipeline
-            import sys
             print(f"DEBUG: About to process command: {command_text}", file=sys.stderr, flush=True)
             print(f"DEBUG: Audio data present: {bool(request.audio_data)}", file=sys.stderr, flush=True)
             print(f"DEBUG: Language: {request.language}", file=sys.stderr, flush=True)
             print(f"DEBUG: Execute flag: {request.execute}", file=sys.stderr, flush=True)
-            
-            # Force direct subprocess call to bypass any caching
-            import subprocess
-            import os
-            env = os.environ.copy()
-            env['NLP2CMD_KEYWORD_DETECTOR_CONFIG'] = '/app/nlp2cmd-repo/data/keyword_intent_detector_config.json'
-            env['NLP2CMD_PATTERNS_FILE'] = '/app/nlp2cmd-repo/data/patterns.json'
-            
-            print(f"DEBUG: Starting NLP2CMD subprocess...", file=sys.stderr, flush=True)
-            result = subprocess.run(['nlp2cmd', command_text], capture_output=True, text=True, env=env, timeout=30)
-            print(f"DEBUG: Raw NLP2CMD result: {result.returncode}", file=sys.stderr, flush=True)
-            print(f"DEBUG: Raw NLP2CMD stdout length: {len(result.stdout)}", file=sys.stderr, flush=True)
-            print(f"DEBUG: Raw NLP2CMD stderr: {result.stderr}", file=sys.stderr, flush=True)
-            
-            # Parse output directly here
-            if result.returncode == 0:
-                output_lines = result.stdout.strip().split('\n')
-                command = ""
-                
-                # Extract command (line after ```bash)
-                bash_block_started = False
-                for line in output_lines:
-                    line = line.strip()
-                    if line == '```bash':
-                        bash_block_started = True
-                        continue
-                    elif line == '```' and bash_block_started:
-                        break
-                    elif bash_block_started and line:
-                        command = line
-                        break
-                
-                # Fallback to YAML
-                if not command:
-                    for line in output_lines:
-                        if 'generated_command:' in line:
-                            command = line.split(':', 1)[1].strip().strip('"')
-                            break
-                
-                print(f"DEBUG: Extracted command: '{command}'", file=sys.stderr, flush=True)
-                print(f"DEBUG: YAML data keys: {list(yaml_data.keys())}", file=sys.stderr, flush=True)
-                
-                # Create mock result
-                class MockResult:
-                    def __init__(self, cmd):
-                        self.success = True
-                        self.command = cmd
-                        self.confidence = 1.0
-                        self.errors = []
-                        self.explanation = f"NLP2CMD generated: {cmd}"
-                
-                pipeline_result = MockResult(command)
-                print(f"DEBUG: Pipeline result created - command: {pipeline_result.command}", file=sys.stderr, flush=True)
-            else:
-                class MockResult:
-                    def __init__(self):
-                        self.success = False
-                        self.command = ""
-                        self.confidence = 0.0
-                        self.errors = ["NLP2CMD failed"]
-                        self.explanation = "NLP2CMD processing failed"
-                
-                pipeline_result = MockResult()
+
+            pipeline_result = self.pipeline.process(command_text)
             
             print(f"DEBUG: Final pipeline result: {pipeline_result.command}", file=sys.stderr, flush=True)
             

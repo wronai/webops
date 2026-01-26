@@ -25,11 +25,13 @@ services:
       - NLP2CMD_ENABLE_HEAVY_NLP=false
       - NLP2CMD_ENABLE_SPACY_LEMMATIZATION=false
       - NLP2CMD_MEASURE_RESOURCES=0
+      - NLP2CMD_KEYWORD_DETECTOR_CONFIG=/app/nlp2cmd-repo/data/keyword_intent_detector_config.json
+      - NLP2CMD_PATTERNS_FILE=/app/nlp2cmd-repo/data/patterns.json
     restart: unless-stopped
     networks:
       - webops-network
     healthcheck:
-      test: ["CMD", "python", "voice_service_clean.py", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
       interval: 30s
       timeout: 10s
       retries: 3
